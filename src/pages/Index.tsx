@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
+import { useToast } from '@/hooks/use-toast';
 
 interface Message {
   id: string;
@@ -33,9 +34,13 @@ const LANGUAGES = [
   { value: 'php', label: 'PHP', icon: '🐘' },
 ];
 
+const API_URL = 'https://functions.poehali.dev/d6b5174d-a9d6-4774-894c-162453dd2e30';
+
 const Index = () => {
+  const { toast } = useToast();
   const [selectedLanguage, setSelectedLanguage] = useState('javascript');
   const [inputMessage, setInputMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const [currentChat, setCurrentChat] = useState<Message[]>([
     {
       id: '1',
@@ -55,123 +60,8 @@ const Index = () => {
   const [activeChatId, setActiveChatId] = useState('1');
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  const generateCodeResponse = (prompt: string, language: string): string => {
-    const codeExamples: Record<string, string> = {
-      javascript: `// Пример JavaScript кода
-function processData(data) {
-  return data
-    .filter(item => item.active)
-    .map(item => ({
-      id: item.id,
-      name: item.name,
-      timestamp: new Date()
-    }));
-}
-
-export default processData;`,
-      python: `# Пример Python кода
-def process_data(data):
-    """Обрабатывает входные данные"""
-    return [
-        {
-            'id': item['id'],
-            'name': item['name'],
-            'active': item.get('active', False)
-        }
-        for item in data
-        if item.get('active')
-    ]`,
-      java: `// Пример Java кода
-public class DataProcessor {
-    public List<Item> processData(List<Item> data) {
-        return data.stream()
-            .filter(Item::isActive)
-            .map(item -> new Item(
-                item.getId(),
-                item.getName(),
-                LocalDateTime.now()
-            ))
-            .collect(Collectors.toList());
-    }
-}`,
-      cpp: `// Пример C++ кода
-#include <vector>
-#include <algorithm>
-
-std::vector<Item> processData(const std::vector<Item>& data) {
-    std::vector<Item> result;
-    std::copy_if(data.begin(), data.end(), 
-                 std::back_inserter(result),
-                 [](const Item& item) { 
-                     return item.isActive(); 
-                 });
-    return result;
-}`,
-      go: `// Пример Go кода
-package main
-
-func processData(data []Item) []Item {
-    var result []Item
-    for _, item := range data {
-        if item.Active {
-            result = append(result, Item{
-                ID:   item.ID,
-                Name: item.Name,
-            })
-        }
-    }
-    return result
-}`,
-      typescript: `// Пример TypeScript кода
-interface Item {
-  id: string;
-  name: string;
-  active: boolean;
-}
-
-function processData(data: Item[]): Item[] {
-  return data
-    .filter((item) => item.active)
-    .map((item) => ({
-      id: item.id,
-      name: item.name,
-      timestamp: new Date(),
-    }));
-}
-
-export default processData;`,
-      rust: `// Пример Rust кода
-pub fn process_data(data: Vec<Item>) -> Vec<Item> {
-    data.into_iter()
-        .filter(|item| item.active)
-        .map(|item| Item {
-            id: item.id,
-            name: item.name,
-            active: item.active,
-        })
-        .collect()
-}`,
-      php: `<?php
-// Пример PHP кода
-function processData(array $data): array {
-    return array_filter(
-        array_map(function($item) {
-            return [
-                'id' => $item['id'],
-                'name' => $item['name'],
-                'timestamp' => time()
-            ];
-        }, $data),
-        fn($item) => $item['active'] ?? false
-    );
-}`,
-    };
-
-    return codeExamples[language] || codeExamples.javascript;
-  };
-
-  const handleSendMessage = () => {
-    if (!inputMessage.trim()) return;
+  const handleSendMessage = async () => {
+    if (!inputMessage.trim() || isLoading) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -180,16 +70,55 @@ function processData(array $data): array {
       timestamp: new Date(),
     };
 
-    const assistantMessage: Message = {
-      id: (Date.now() + 1).toString(),
-      role: 'assistant',
-      content: `Вот код на ${LANGUAGES.find(l => l.value === selectedLanguage)?.label}:\n\n${generateCodeResponse(inputMessage, selectedLanguage)}`,
-      language: selectedLanguage,
-      timestamp: new Date(),
-    };
-
-    setCurrentChat([...currentChat, userMessage, assistantMessage]);
+    setCurrentChat(prev => [...prev, userMessage]);
     setInputMessage('');
+    setIsLoading(true);
+
+    try {
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: userMessage.content,
+          language: selectedLanguage,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Ошибка при генерации кода');
+      }
+
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: `Вот код на ${LANGUAGES.find(l => l.value === selectedLanguage)?.label}:\n\n${data.code}`,
+        language: selectedLanguage,
+        timestamp: new Date(),
+      };
+
+      setCurrentChat(prev => [...prev, assistantMessage]);
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: error instanceof Error ? error.message : 'Не удалось сгенерировать код',
+        variant: 'destructive',
+      });
+
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: 'Извините, произошла ошибка при генерации кода. Попробуйте снова или проверьте настройки API.',
+        timestamp: new Date(),
+      };
+
+      setCurrentChat(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const createNewChat = () => {
@@ -363,12 +292,17 @@ function processData(array $data): array {
               <Input
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                onKeyPress={(e) => e.key === 'Enter' && !isLoading && handleSendMessage()}
                 placeholder="Опишите какой код вам нужен..."
                 className="flex-1"
+                disabled={isLoading}
               />
-              <Button onClick={handleSendMessage} size="icon" className="flex-shrink-0">
-                <Icon name="Send" size={18} />
+              <Button onClick={handleSendMessage} size="icon" className="flex-shrink-0" disabled={isLoading}>
+                {isLoading ? (
+                  <Icon name="Loader2" size={18} className="animate-spin" />
+                ) : (
+                  <Icon name="Send" size={18} />
+                )}
               </Button>
             </div>
             <p className="text-xs text-muted-foreground mt-2 text-center">

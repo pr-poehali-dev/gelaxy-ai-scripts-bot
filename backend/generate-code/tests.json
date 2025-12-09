@@ -1,0 +1,33 @@
+{
+  "tests": [
+    {
+      "name": "Test code generation endpoint",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "prompt": "Create a function that sorts an array",
+        "language": "javascript"
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "code": "string",
+        "language": "string",
+        "model": "string"
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Test missing prompt",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "language": "python"
+      },
+      "expectedStatus": 400,
+      "expectedBody": {
+        "error": "string"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}
